@@ -1,0 +1,29 @@
+server:
+  port: ${hmdp.server.port}
+spring:
+  profiles:
+    active: dev
+  application:
+    name: ${hmdp.spring.application.name}
+  datasource:
+    driver-class-name: ${hmdp.spring.datasource.driver-class-name}
+    url: ${hmdp.spring.datasource.url}
+    username: ${hmdp.spring.datasource.username}
+    password: ${hmdp.spring.datasource.password}
+  redis:
+    host: ${hmdp.spring.redis.host}
+    port: ${hmdp.spring.redis.port}
+    password: ${hmdp.spring.redis.password}
+    lettuce:
+      pool:
+        max-active: ${hmdp.spring.redis.lettuce.pool.max-active}
+        max-idle: ${hmdp.spring.redis.lettuce.pool.max-idle}
+        min-idle: ${hmdp.spring.redis.lettuce.pool.min-idle}
+        time-between-eviction-runs: ${hmdp.spring.redis.lettuce.pool.time-between-eviction-runs}
+  jackson:
+    default-property-inclusion: ${hmdp.spring.jackson.default-property-inclusion} # JSON处理时忽略非空字段
+mybatis-plus:
+  type-aliases-package: ${hmdp.mybatis-plus.type-aliases-package} # 别名扫描包
+logging:
+  level:
+    "[com.hmdp]": ${hmdp.logging.level[com.hmdp]}
