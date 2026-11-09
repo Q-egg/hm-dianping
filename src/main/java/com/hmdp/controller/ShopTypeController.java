@@ -2,6 +2,7 @@ package com.hmdp.controller;
 
 
 import com.hmdp.dto.Result;
+import com.hmdp.entity.Shop;
 import com.hmdp.entity.ShopType;
 import com.hmdp.service.IShopTypeService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,10 +26,15 @@ public class ShopTypeController {
     @Resource
     private IShopTypeService typeService;
 
-    @GetMapping("list")
+    /**
+     * 查询店铺类型
+     * @return
+     */
+    @GetMapping("/list")
     public Result queryTypeList() {
-        List<ShopType> typeList = typeService
-                .query().orderByAsc("sort").list();
-        return Result.ok(typeList);
+//        List<ShopType> typeList = typeService
+//                .query().orderByAsc("sort").list();
+//        return Result.ok(typeList);
+        return typeService.queryShopList();
     }
 }
