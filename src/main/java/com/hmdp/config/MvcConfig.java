@@ -26,7 +26,14 @@ public class MvcConfig implements WebMvcConfigurer {
                 "/shop-type/**",
                 "/blog/hot/**",
                 "/voucher/**",
-                "/upload/**"
+                "/upload/**",
+                // 接口文档页面、静态资源和 OpenAPI 数据
+                "/doc.html",
+                "/webjars/**",
+                "/swagger-ui.html",
+                "/swagger-ui/**",
+                "/v3/api-docs",
+                "/v3/api-docs/**"
         ).order(1);
 
         //2.token刷新拦截器

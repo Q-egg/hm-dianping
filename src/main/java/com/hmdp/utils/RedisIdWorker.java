@@ -38,7 +38,6 @@ public class RedisIdWorker {
         long count = stringRedisTemplate.opsForValue().increment("icr:" + keyPrefix + ":" + date);
 
         //3.组装并返回
-
         return timeStamp << COUNT_BITS | count;
     }
 
