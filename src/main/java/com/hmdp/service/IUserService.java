@@ -28,4 +28,10 @@ public interface IUserService extends IService<User> {
      * 登录功能
      */
     Result login(LoginFormDTO loginForm, HttpSession session);
+
+    Result sign();
+
+    Result logout(String token);
+
+    Result signCount();
 }
