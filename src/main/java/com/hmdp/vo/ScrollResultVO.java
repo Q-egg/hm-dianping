@@ -1,11 +1,11 @@
-package com.hmdp.dto;
+package com.hmdp.vo;
 
 import lombok.Data;
 
 import java.util.List;
 
 @Data
-public class ScrollResult {
+public class ScrollResultVO {
     private List<?> list;
     private Long minTime;
     private Integer offset;
