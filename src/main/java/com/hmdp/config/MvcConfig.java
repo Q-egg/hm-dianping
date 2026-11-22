@@ -26,7 +26,6 @@ public class MvcConfig implements WebMvcConfigurer {
                 "/shop-type/**",
                 "/blog/hot/**",
                 "/voucher/**",
-                "/upload/**",
                 // 接口文档页面、静态资源和 OpenAPI 数据
                 "/doc.html",
                 "/webjars/**",

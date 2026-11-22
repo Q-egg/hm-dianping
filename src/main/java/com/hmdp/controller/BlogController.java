@@ -6,6 +6,8 @@ import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.service.IBlogService;
+import com.hmdp.service.UploadService;
+import java.util.UUID;
 import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.vo.ScrollResultVO;
@@ -29,9 +31,13 @@ public class BlogController {
     @Resource
     private IBlogService blogService;
 
+    @Resource
+    private UploadService uploadService;
+
     @PostMapping
-    public Result saveBlog(@RequestBody Blog blog) {
-       return blogService.saveBlog(blog);
+    public Result saveBlog(@RequestBody Blog blog, @RequestParam(required = false) UUID draftId) {
+        return draftId == null ? blogService.saveBlog(blog)
+                : uploadService.publishDraft(draftId, blog);
     }
 
     @PutMapping("/like/{id}")
