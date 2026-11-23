@@ -33,4 +33,11 @@ public class BlogCommentsController {
         return blogCommentsService.senComment(blogCommentDTO);
     }
 
+    @PostMapping("/{commentId}/replies")
+    public Result replyComment(@PathVariable("commentId") Long commentId,@RequestBody BlogCommentDTO blogCommentDTO)
+    {
+        return blogCommentsService.replyComment(commentId,blogCommentDTO);
+    }
+
+
 }

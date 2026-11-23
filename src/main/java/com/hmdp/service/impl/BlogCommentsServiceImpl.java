@@ -146,4 +146,55 @@ public class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, Blo
         //5.返回评论id
         return Result.ok(blogComments.getId());
     }
+
+    @Transactional
+    @Override
+    public Result replyComment(Long commentId, BlogCommentDTO blogCommentDTO) {
+        String content = blogCommentDTO.getContent();
+        if(commentId == null || commentId <= 0){
+            return Result.fail("找不到评论");
+        }
+        content = StrUtil.trim(content);
+        if(StrUtil.isBlank(content)){
+            return Result.fail("评论不能为空");
+        }
+        if(content.codePointCount(0, content.length()) > 255){
+            return Result.fail("评论内容不能超过255字符");
+        }
+        //1.查询用户id
+        Long userId = UserHolder.getUser().getId();
+        //2.查询回复的评论
+        BlogComments comment = getById(commentId);
+        //3.判断评论是否为空
+        if(comment == null || !Integer.valueOf(0).equals(comment.getStatus())){
+            return Result.fail("评论不存在或不可见");
+        }
+        Long blogId = comment.getBlogId();
+        //4.笔记评论数量 + 1
+        boolean update = blogService.update()
+                .setSql("comments = COALESCE(comments, 0) + 1")
+                .eq("id", blogId)
+                .update();
+        if(!update){
+            return Result.fail("笔记不存在");
+        }
+
+        //5.判断是一级评论，还是回复的评论
+        Long parentId = comment.getParentId();
+        //6.插入评论
+        BlogComments blogComment = new BlogComments();
+        blogComment.setUserId(userId);
+        blogComment.setBlogId(blogId);
+        blogComment.setContent(content);
+        blogComment.setStatus(0);
+        blogComment.setLiked(0);
+        blogComment.setParentId(parentId == 0L ? comment.getId() : parentId);
+        blogComment.setAnswerId(commentId);
+        boolean save = save(blogComment);
+        if(!save){
+            throw new RuntimeException("保存评论出错");
+        }
+        //7.返回
+        return Result.ok(blogComment.getId());
+    }
 }
