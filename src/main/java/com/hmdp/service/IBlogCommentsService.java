@@ -24,4 +24,6 @@ public interface IBlogCommentsService extends IService<BlogComments> {
     Result queryCommentReply(Long commentId, Integer current);
 
     Result like(Long commentId);
+
+    Result deleteComment(Long commentId);
 }

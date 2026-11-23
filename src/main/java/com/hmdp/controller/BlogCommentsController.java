@@ -51,4 +51,10 @@ public class BlogCommentsController {
         return blogCommentsService.like(commentId);
     }
 
+    @DeleteMapping("/{commentId}")
+    public Result deleteComment(@PathVariable Long commentId)
+    {
+        return blogCommentsService.deleteComment(commentId);
+    }
+
 }

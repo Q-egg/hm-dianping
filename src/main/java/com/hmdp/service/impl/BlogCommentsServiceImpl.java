@@ -18,10 +18,14 @@ import com.hmdp.utils.UserHolder;
 import com.hmdp.vo.BlogCommentReplyVO;
 import com.hmdp.vo.BlogCommentVO;
 import com.hmdp.vo.LikedVO;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.bind.annotation.RequestBody;
 
 import javax.annotation.Resource;
@@ -41,6 +45,7 @@ import static com.hmdp.utils.SystemConstants.DEFAULT_PAGE_SIZE;
  * @author &#x864E;&#x54E5;
  * @since 2021-12-22
  */
+@Slf4j
 @Service
 public class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, BlogComments> implements IBlogCommentsService {
     @Resource
@@ -253,8 +258,8 @@ public class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, Blo
         if(commentId <= 0){
             throw new RuntimeException("评论id不合法");
         }
-        //1.查询对应的评论
-        BlogComments comment = getById(commentId);
+        // 先锁住评论，避免删除提交后又写入点赞记录。
+        BlogComments comment = query().eq("id", commentId).last("FOR UPDATE").one();
         //2.判断评论是否为null
         if(comment == null){
             return Result.fail("该评论不存在或已经被删除");
@@ -292,5 +297,64 @@ public class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, Blo
         likedVO.setLiked(getById(commentId).getLiked());
 
         return Result.ok(likedVO);
+    }
+
+    @Transactional
+    @Override
+    public Result deleteComment(Long commentId) {
+        //1.判断id是否合法
+        if(commentId == null || commentId <= 0)
+        {
+            return Result.fail("评论id不合法");
+        }
+        //2.获取当前用户id
+        Long userId = UserHolder.getUser().getId();
+
+        //3.查询评论
+        List<BlogComments> list = query().eq("user_id", userId).eq("id", commentId).list();
+        if(list == null || list.size() == 0)
+        {
+            return Result.fail("评论不存在或已删除");
+        }
+
+        BlogComments blogComments = list.get(0);
+        //4.判断是不是一级评论
+        Long parentId = blogComments.getParentId();
+
+        if (!removeById(commentId)) {
+            throw new RuntimeException("删除评论失败");
+        }
+
+        List<String> likeKeys = new ArrayList<>();
+        likeKeys.add(BLOG_COMMENT_LIKED + commentId);
+        int size = 0;
+        if (parentId == 0L) {
+            List<BlogComments> replies = query().select("id").eq("parent_id", commentId)
+                    .last("FOR UPDATE").list();
+            for (BlogComments reply : replies) {
+                likeKeys.add(BLOG_COMMENT_LIKED + reply.getId());
+            }
+            size = baseMapper.delete(query().eq("parent_id", commentId).getWrapper());
+        }
+
+        //5.更新笔记评论数量
+        boolean update = blogService.update().eq("id", blogComments.getBlogId()).setSql("comments = comments - 1 - " + size).update();
+        if(!update)
+        {
+            throw new RuntimeException("笔记评论数量更新失败");
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    stringRedisTemplate.delete(likeKeys);
+                } catch (DataAccessException e) {
+                    log.warn("清理评论 {} 的点赞记录失败", commentId, e);
+                }
+            }
+        });
+
+        return Result.ok();
     }
 }
