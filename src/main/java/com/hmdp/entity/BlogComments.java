@@ -1,6 +1,7 @@
 package com.hmdp.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -46,6 +47,7 @@ public class BlogComments implements Serializable {
      * 关联的1级评论id，如果是一级评论，则值为0
      */
     private Long parentId;
+
 
     /**
      * 回复的评论id

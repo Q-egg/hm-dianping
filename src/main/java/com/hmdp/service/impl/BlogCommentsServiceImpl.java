@@ -17,7 +17,9 @@ import com.hmdp.service.UploadService;
 import com.hmdp.utils.UserHolder;
 import com.hmdp.vo.BlogCommentReplyVO;
 import com.hmdp.vo.BlogCommentVO;
+import com.hmdp.vo.LikedVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,6 +30,7 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.hmdp.utils.RedisConstants.BLOG_COMMENT_LIKED;
 import static com.hmdp.utils.SystemConstants.DEFAULT_PAGE_SIZE;
 
 /**
@@ -45,6 +48,9 @@ public class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, Blo
 
     @Resource
     private IBlogService blogService;
+
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
 
     @Override
     public Result queryCommentsList(Long blogId, Integer current) {
@@ -239,5 +245,52 @@ public class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, Blo
         }
 
         return Result.ok(blogCommentReply,page.getTotal());
+    }
+
+    @Transactional
+    @Override
+    public Result like(Long commentId) {
+        if(commentId <= 0){
+            throw new RuntimeException("评论id不合法");
+        }
+        //1.查询对应的评论
+        BlogComments comment = getById(commentId);
+        //2.判断评论是否为null
+        if(comment == null){
+            return Result.fail("该评论不存在或已经被删除");
+        }
+        if(!Integer.valueOf(0).equals(comment.getStatus()))
+        {
+            return Result.fail("该评论违规");
+        }
+        //3.判断是否点赞过
+        Long userId = UserHolder.getUser().getId();
+        String key = BLOG_COMMENT_LIKED + commentId;
+        boolean member = Boolean.TRUE.equals(stringRedisTemplate.opsForSet().isMember(key, userId.toString()));
+        if(!member) {
+            Long changed = stringRedisTemplate.opsForSet().add(key, userId.toString());
+            if(!Long.valueOf(1L).equals(changed)){
+                return Result.fail("点赞状态已变化，请刷新");
+            }
+            boolean update = update().eq("id", commentId).eq("status", 0).setSql("liked = COALESCE(liked, 0) + 1").update();
+            if (!update) {
+                throw new RuntimeException("更新点赞数失败");
+            }
+        }else{
+            Long changed = stringRedisTemplate.opsForSet().remove(key, userId.toString());
+            if(!Long.valueOf(1L).equals(changed))
+            {
+                return Result.fail("点赞状态已变化，请刷新");
+            }
+            boolean update = update().eq("id", commentId).eq("status", 0).gt("liked",0).setSql("liked = liked - 1").update();
+                if(!update){
+                    throw new RuntimeException("更新点赞数失败");
+                }
+            }
+        LikedVO likedVO = new LikedVO();
+        likedVO.setIsLike(!member);
+        likedVO.setLiked(getById(commentId).getLiked());
+
+        return Result.ok(likedVO);
     }
 }

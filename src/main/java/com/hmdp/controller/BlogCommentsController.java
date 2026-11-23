@@ -45,5 +45,10 @@ public class BlogCommentsController {
         return blogCommentsService.queryCommentReply(commentId,current);
     }
 
+    @PutMapping("/like/{commentId}")
+    public Result like(@PathVariable Long commentId)
+    {
+        return blogCommentsService.like(commentId);
+    }
 
 }

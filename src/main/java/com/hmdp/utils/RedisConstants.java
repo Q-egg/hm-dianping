@@ -23,4 +23,6 @@ public class RedisConstants {
     public static final String USER_SIGN_KEY = "sign:";
 
     public static final String UPLOAD_OWNER = "upload:owner:";
+
+    public static final String BLOG_COMMENT_LIKED = "blog:comment:liked:";
 }
