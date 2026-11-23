@@ -1,13 +1,11 @@
 package com.hmdp.controller;
 
 
+import com.hmdp.dto.BlogCommentDTO;
 import com.hmdp.dto.Result;
+import com.hmdp.entity.BlogComments;
 import com.hmdp.service.IBlogCommentsService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 
@@ -28,6 +26,11 @@ public class BlogCommentsController {
     @GetMapping
     public Result queryCommentsList(@RequestParam("blogId") Long blogId,@RequestParam(value = "current",defaultValue = "1") Integer current){
         return blogCommentsService.queryCommentsList(blogId,current);
+    }
+
+    @PostMapping
+    public Result sendComment(@RequestBody BlogCommentDTO blogCommentDTO){
+        return blogCommentsService.senComment(blogCommentDTO);
     }
 
 }

@@ -3,6 +3,7 @@ package com.hmdp.service.impl;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.hmdp.dto.BlogCommentDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.BlogComments;
@@ -13,9 +14,12 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.service.IBlogService;
 import com.hmdp.service.IUserService;
 import com.hmdp.service.UploadService;
+import com.hmdp.utils.UserHolder;
 import com.hmdp.vo.BlogCommentVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.RequestBody;
 
 import javax.annotation.Resource;
 
@@ -27,10 +31,10 @@ import static com.hmdp.utils.SystemConstants.DEFAULT_PAGE_SIZE;
 
 /**
  * <p>
- *  服务实现类
+ *  &#x670D;&#x52A1;&#x5B9E;&#x73B0;&#x7C7B;
  * </p>
  *
- * @author 虎哥
+ * @author &#x864E;&#x54E5;
  * @since 2021-12-22
  */
 @Service
@@ -95,5 +99,51 @@ public class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, Blo
 
         //返回
         return Result.ok(comments, page.getTotal());
+    }
+
+    @Transactional
+    @Override
+    public Result senComment(BlogCommentDTO blogCommentDTO) {
+        //1.检查传入的评论是否为空
+        Long blogId = blogCommentDTO.getBlogId();
+        if (blogId == null || blogId <= 0) {
+            return Result.fail("参数错误");
+        }
+
+        String content = StrUtil.trim(blogCommentDTO.getContent());
+        if (StrUtil.isBlank(content)) {
+            return Result.fail("评论内容不能为空");
+        }
+        if (content.codePointCount(0, content.length()) > 255) {
+            return Result.fail("评论内容不能超过255个字符");
+        }
+        //2.获取当前用户
+        Long userId = UserHolder.getUser().getId();
+
+        //3.将该笔记的评论数 + 1
+        boolean updated = blogService.update()
+                .setSql("comments = COALESCE(comments, 0) + 1")
+                .eq("id", blogCommentDTO.getBlogId())
+                .update();
+        if (!updated) {
+            return Result.fail("笔记不存在");
+        }
+
+        //4.插入评论
+        BlogComments blogComments = new BlogComments();
+        blogComments.setBlogId(blogId);
+        blogComments.setContent(content);
+        blogComments.setUserId(userId);
+        blogComments.setParentId(0L);
+        blogComments.setAnswerId(0L);
+        blogComments.setStatus(0);
+        blogComments.setLiked(0);
+        boolean save = save(blogComments);
+        if(!save) {
+            throw new RuntimeException();
+        }
+
+        //5.返回评论id
+        return Result.ok(blogComments.getId());
     }
 }

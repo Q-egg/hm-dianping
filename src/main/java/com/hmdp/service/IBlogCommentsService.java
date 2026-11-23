@@ -1,5 +1,6 @@
 package com.hmdp.service;
 
+import com.hmdp.dto.BlogCommentDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.entity.BlogComments;
 import com.baomidou.mybatisplus.extension.service.IService;
@@ -15,4 +16,6 @@ import com.baomidou.mybatisplus.extension.service.IService;
 public interface IBlogCommentsService extends IService<BlogComments> {
 
     Result queryCommentsList(Long blogId, Integer current);
+
+    Result senComment(BlogCommentDTO blogCommentDTO);
 }
