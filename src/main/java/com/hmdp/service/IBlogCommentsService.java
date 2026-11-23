@@ -20,4 +20,6 @@ public interface IBlogCommentsService extends IService<BlogComments> {
     Result senComment(BlogCommentDTO blogCommentDTO);
 
     Result replyComment(Long commentId, BlogCommentDTO blogCommentDTO);
+
+    Result queryCommentReply(Long commentId, Integer current);
 }

@@ -15,6 +15,7 @@ import com.hmdp.service.IBlogService;
 import com.hmdp.service.IUserService;
 import com.hmdp.service.UploadService;
 import com.hmdp.utils.UserHolder;
+import com.hmdp.vo.BlogCommentReplyVO;
 import com.hmdp.vo.BlogCommentVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -196,5 +197,47 @@ public class BlogCommentsServiceImpl extends ServiceImpl<BlogCommentsMapper, Blo
         }
         //7.返回
         return Result.ok(blogComment.getId());
+    }
+
+    @Override
+    public Result queryCommentReply(Long commentId, Integer current) {
+        //1.判断commentId是否合法
+        if(commentId == null || commentId < 1){
+            return Result.fail("查询的评论不合法");
+        }
+        BlogComments comments = getById(commentId);
+        if(comments == null || comments.getParentId() != 0 || !Integer.valueOf(0).equals(comments.getStatus())){
+            return Result.fail("该评论不存在或被删除");
+        }
+        //2.查询评论信息
+        Page<BlogComments> page = query().eq("parent_id", commentId).eq("status",0).orderByDesc("create_time").orderByDesc("id").page(new Page<>(current, DEFAULT_PAGE_SIZE));
+
+        //3.封装结果
+        List<BlogComments> blogComments = page.getRecords();
+        if(blogComments == null || blogComments.isEmpty())
+        {
+            return Result.ok(Collections.emptyList(),page.getTotal());
+        }
+        List<BlogCommentReplyVO> blogCommentReply = new ArrayList<>(blogComments.size());
+        List<Long> userIds = blogComments.stream().map(BlogComments::getUserId).collect(Collectors.toList());
+        List<User> users = userService.query()
+                .select("id", "nick_name", "icon")
+                .in("id", userIds)
+                .list();
+        for (BlogComments blogComment : blogComments) {
+            BlogCommentReplyVO blogCommentReplyVO = BeanUtil.copyProperties(blogComment, BlogCommentReplyVO.class);
+
+            User author = users.stream()
+                    .filter(user -> user.getId().equals(blogComment.getUserId()))
+                    .findFirst()
+                    .orElse(null);
+
+            blogCommentReplyVO.setNickName(author == null ? "已注销用户" : author.getNickName());
+            blogCommentReplyVO.setIcon(author == null || author.getIcon() == null ? "" : author.getIcon());
+            blogCommentReplyVO.setLiked(blogComment.getLiked() == null ? 0 : blogComment.getLiked());
+            blogCommentReply.add(blogCommentReplyVO);
+        }
+
+        return Result.ok(blogCommentReply,page.getTotal());
     }
 }

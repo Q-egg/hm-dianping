@@ -39,5 +39,11 @@ public class BlogCommentsController {
         return blogCommentsService.replyComment(commentId,blogCommentDTO);
     }
 
+    @GetMapping("/{commentId}/replies")
+    public Result queryCommentReply(@PathVariable("commentId") Long commentId,@RequestParam(value = "current",defaultValue = "1") Integer current)
+    {
+        return blogCommentsService.queryCommentReply(commentId,current);
+    }
+
 
 }
