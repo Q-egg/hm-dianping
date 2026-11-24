@@ -3,9 +3,13 @@ package com.hmdp.controller;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.db.Page;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
+import com.hmdp.dto.UserProfileDTO;
 import com.hmdp.entity.Blog;
 import com.hmdp.entity.User;
 import com.hmdp.entity.UserInfo;
@@ -39,6 +43,9 @@ public class UserController {
 
     @Resource
     private IUserInfoService userInfoService;
+
+    @Resource
+    private ObjectMapper objectMapper;
 
 
     /**
@@ -126,5 +133,17 @@ public class UserController {
     public Result resetPassword(@RequestBody LoginFormDTO loginFormDTO)
     {
         return userService.resetPassword(loginFormDTO);
+    }
+
+    @PatchMapping("/me")  //也可以使用Post
+    public Result saveMe(@RequestBody JsonNode body) {
+        if (!body.isObject()) {
+            return Result.fail("请求参数不合法");
+        }
+        try {
+            return userService.saveMe(objectMapper.treeToValue(body, UserProfileDTO.class));
+        } catch (JsonProcessingException e) {
+            return Result.fail("请求参数不合法");
+        }
     }
 }

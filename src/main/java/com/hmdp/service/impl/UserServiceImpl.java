@@ -9,8 +9,11 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.dto.LoginFormDTO;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
+import com.hmdp.dto.UserProfileDTO;
 import com.hmdp.entity.User;
+import com.hmdp.entity.UserInfo;
 import com.hmdp.mapper.UserMapper;
+import com.hmdp.service.IUserInfoService;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.PasswordEncoder;
 import com.hmdp.utils.RegexUtils;
@@ -20,12 +23,16 @@ import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -50,6 +57,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private IUserInfoService userInfoService;
+
+    @Resource
+    private TransactionTemplate transactionTemplate;
+
+    @Resource
+    private HttpServletRequest request;
+
+    private static final DefaultRedisScript<Long> UPDATE_PROFILE_SESSION_SCRIPT =
+            new DefaultRedisScript<>(
+                    "if redis.call('HGET', KEYS[1], 'id') == ARGV[1] then "
+                            + "return redis.call('HSET', KEYS[1], unpack(ARGV, 2)) end return 0",
+                    Long.class);
 
     private static final DefaultRedisScript<Long> CONSUME_CODE_SCRIPT =
             new DefaultRedisScript<>(
@@ -281,6 +303,91 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return Result.fail("手机号或验证码无效");
         }
         return Result.ok();
+    }
+
+    @Override
+    public Result saveMe(UserProfileDTO userProfileDTO) {
+        String nickName = userProfileDTO.getNickName();
+        String icon = userProfileDTO.getIcon();
+        String city = userProfileDTO.getCity();
+        String introduce = userProfileDTO.getIntroduce();
+        Boolean gender = userProfileDTO.getGender();
+        LocalDate birthday = userProfileDTO.getBirthday();
+
+        boolean updateUser = nickName != null || icon != null;
+        boolean updateInfo = city != null || introduce != null || gender != null || birthday != null;
+        if ((!updateUser && !updateInfo)
+                || (nickName != null && StrUtil.isBlank(nickName))
+                || exceedsLength(nickName, 32) || exceedsLength(icon, 255)
+                || exceedsLength(city, 64) || exceedsLength(introduce, 128)) {
+            return Result.fail("请求参数不合法");
+        }
+
+        if (birthday != null && (birthday.getYear() < 1000 || birthday.getYear() > 9999)) {
+            return Result.fail("请求参数不合法");
+        }
+
+        Long userId = UserHolder.getUser().getId();
+        Boolean saved = transactionTemplate.execute(status -> {
+            // 同一用户首次并发编辑时，先锁住用户行，再判断是否需要新增详情。
+            User user = query().select("id").eq("id", userId).last("FOR UPDATE").one();
+            if (user == null) {
+                return false;
+            }
+
+            if (updateUser) {
+                update().eq("id", userId)
+                        .set(nickName != null, "nick_name", nickName)
+                        .set(icon != null, "icon", icon)
+                        .update();
+            }
+
+            if (updateInfo) {
+                UserInfo info = new UserInfo().setUserId(userId).setCity(city)
+                        .setIntroduce(introduce).setGender(gender).setBirthday(birthday);
+                if (userInfoService.getById(userId) == null) {
+                    userInfoService.save(info);
+                } else {
+                    userInfoService.updateById(info);
+                }
+            }
+
+            return true;
+        });
+        if (!Boolean.TRUE.equals(saved)) {
+            return Result.fail("用户不存在");
+        }
+
+        if (updateUser) {
+            refreshProfileSession(userId, request.getHeader("authorization"), nickName != null, icon != null);
+        }
+        return Result.ok();
+    }
+
+    private boolean exceedsLength(String value, int maxLength) {
+        return value != null && value.codePointCount(0, value.length()) > maxLength;
+    }
+
+    private void refreshProfileSession(Long userId, String token, boolean updateNickName, boolean updateIcon) {
+        // 提交后在行锁下读取最新值，避免并发请求把旧值写回会话。
+        transactionTemplate.executeWithoutResult(status -> {
+            User user = query().select("id", "nick_name", "icon")
+                    .eq("id", userId).last("FOR UPDATE").one();
+            if (user == null) {
+                return;
+            }
+
+            List<String> arguments = new ArrayList<>();
+            arguments.add(userId.toString());
+            if (updateNickName) {
+                Collections.addAll(arguments, "nickName", user.getNickName());
+            }
+            if (updateIcon) {
+                Collections.addAll(arguments, "icon", user.getIcon());
+            }
+            stringRedisTemplate.execute(UPDATE_PROFILE_SESSION_SCRIPT,
+                    Collections.singletonList(LOGIN_USER_KEY + token), arguments.toArray());
+        });
     }
 
 
