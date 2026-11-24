@@ -115,4 +115,16 @@ public class UserController {
     public Result signCount() {
         return userService.signCount();
     }
+
+    @PostMapping("/password")
+    public Result setPassword(@RequestBody LoginFormDTO loginFormDTO)
+    {
+        return userService.setPassword(loginFormDTO);
+    }
+
+    @PostMapping("/password/reset")
+    public Result resetPassword(@RequestBody LoginFormDTO loginFormDTO)
+    {
+        return userService.resetPassword(loginFormDTO);
+    }
 }

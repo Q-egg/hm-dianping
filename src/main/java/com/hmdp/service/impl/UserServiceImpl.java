@@ -12,11 +12,13 @@ import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.User;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
+import com.hmdp.utils.PasswordEncoder;
 import com.hmdp.utils.RegexUtils;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -24,6 +26,7 @@ import javax.servlet.http.HttpSession;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +50,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    private static final DefaultRedisScript<Long> CONSUME_CODE_SCRIPT =
+            new DefaultRedisScript<>(
+                    "if redis.call('GET', KEYS[1]) == ARGV[1] then "
+                            + "return redis.call('DEL', KEYS[1]) end return 0",
+                    Long.class);
 
     /**
      * 发送短信验证码
@@ -81,21 +90,27 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
             return Result.fail("手机号格式错误");
         }
 
-        //2.从redis中取出code
-        String cacheCode = stringRedisTemplate.opsForValue().get(LOGIN_CODE_KEY + phone);
-
-
-        if (cacheCode == null || !cacheCode.equals(loginForm.getCode())) {
-            //3.不一致报错
-            return Result.fail("验证码错误");
+        String code = loginForm.getCode();
+        String password = loginForm.getPassword();
+        boolean hasCode = StrUtil.isNotBlank(code);
+        boolean hasPassword = StrUtil.isNotBlank(password);
+        if (hasCode == hasPassword) {
+            return Result.fail("请提供短信验证码或密码，二选一");
         }
 
-        //4.根据手机号查询用户
-        User user = query().eq("phone", phone).one();
+        if (hasCode) {
+            String cacheCode = stringRedisTemplate.opsForValue().get(LOGIN_CODE_KEY + phone);
+            if (!code.equals(cacheCode)) {
+                return Result.fail("验证码错误");
+            }
+        }
 
-        //5..判断用户是否存在
-        if (user == null) {
-            //6..创建用户
+        User user = query().eq("phone", phone).one();
+        if (hasPassword) {
+            if (user == null || !PasswordEncoder.matches(user.getPassword(), password)) {
+                return Result.fail("手机号或密码错误");
+            }
+        } else if (user == null) {
             user = createUserWithPhone(phone);
         }
         //7.将用户信息保存到redis
@@ -109,7 +124,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
                 CopyOptions
                         .create()
                         .setIgnoreNullValue(true)
-                        .setFieldValueEditor((filedName,filedValue) -> filedValue.toString()));
+                        .setFieldValueEditor((fieldName, fieldValue) -> fieldValue == null ? null : fieldValue.toString()));
         //7.3存入redis
         String tokenKey = LOGIN_USER_KEY + token;
         stringRedisTemplate.opsForHash().putAll(tokenKey,userMap);
@@ -192,6 +207,80 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
 
         return Result.ok(count);
+    }
+
+    @Override
+    public Result setPassword(LoginFormDTO loginFormDTO) {
+        //1.获取登录密码
+        String password = loginFormDTO.getPassword();
+        if(StrUtil.isBlank(password))
+        {
+            return Result.fail("密码不能为空");
+        }
+        if(password.length() < 6 || password.length() > 20)
+        {
+            return Result.fail("密码不能太短或太长");
+        }
+        Long userId = UserHolder.getUser().getId();
+
+        //2.将密码进行加密
+        String passwordHash = PasswordEncoder.encode(password);
+        //UPDATE tb_user
+        //SET password = ?
+        //WHERE id = ?
+        // AND (password IS NULL OR password = '');  判断是否有密码了
+        boolean updated = update()
+                .set("password", passwordHash)
+                .eq("id", userId)
+                .and(w -> w.isNull("password").or().eq("password", ""))
+                .update();
+
+        return updated ? Result.ok() : Result.fail("该账号已设置密码或不存在");
+    }
+
+    @Override
+    public Result resetPassword(LoginFormDTO loginFormDTO) {
+        //1.校验手机号
+        String phone = loginFormDTO.getPhone();
+        if(RegexUtils.isPhoneInvalid(phone)){
+            //2.如果手机号错误
+            return Result.fail("手机号格式错误");
+        }
+
+        //2.校验新密码
+        String password = loginFormDTO.getPassword();
+        if(StrUtil.isBlank(password))
+        {
+            return Result.fail("密码不能为空");
+        }
+        if(password.length() < 6 || password.length() > 20)
+        {
+            return Result.fail("密码不能太短或太长");
+        }
+
+        //3.校验验证码
+        String code = loginFormDTO.getCode();
+        if (code == null || !code.matches("[0-9]{6}")) {
+            return Result.fail("请求参数不合法");
+        }
+
+        Long consumed = stringRedisTemplate.execute(
+                CONSUME_CODE_SCRIPT, Collections.singletonList(LOGIN_CODE_KEY + phone), code);
+        if (!Long.valueOf(1L).equals(consumed)) {
+            return Result.fail("手机号或验证码无效");
+        }
+
+        //4.重置密码
+        String passwordHash = PasswordEncoder.encode(password);
+        boolean updated = update()
+                .set("password", passwordHash)
+                .eq("phone", phone)
+                .update();
+        if(!updated)
+        {
+            return Result.fail("手机号或验证码无效");
+        }
+        return Result.ok();
     }
 
 

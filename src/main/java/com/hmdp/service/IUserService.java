@@ -34,4 +34,8 @@ public interface IUserService extends IService<User> {
     Result logout(String token);
 
     Result signCount();
+
+    Result setPassword(LoginFormDTO loginFormDTO);
+
+    Result resetPassword(LoginFormDTO loginFormDTO);
 }

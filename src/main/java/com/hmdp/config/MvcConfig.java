@@ -33,7 +33,8 @@ public class MvcConfig implements WebMvcConfigurer {
                 "/swagger-ui/**",
                 "/v3/api-docs",
                 "/v3/api-docs/**",
-                "/user/logout"
+                "/user/logout",
+                "/user/password/reset"
         ).order(1);
 
         //2.token刷新拦截器
