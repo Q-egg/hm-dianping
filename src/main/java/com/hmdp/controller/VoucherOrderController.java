@@ -29,4 +29,10 @@ public class VoucherOrderController {
     public Result seckillVoucher(@PathVariable("id") Long voucherId) throws InterruptedException {
         return voucherOrderService.seckillVoucher(voucherId);
     }
+
+    @PostMapping("/normal/{voucherId}")
+    public Result normalVoucher(@PathVariable Long voucherId)
+    {
+        return voucherOrderService.normalVoucher(voucherId);
+    }
 }

@@ -4,6 +4,7 @@ import cn.hutool.core.bean.BeanUtil;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.SeckillVoucher;
+import com.hmdp.entity.Voucher;
 import com.hmdp.entity.VoucherOrder;
 import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
@@ -57,6 +58,9 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private RedissonClient redissonClient;
+
+    @Resource
+    private IVoucherService voucherService;
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
 
@@ -353,5 +357,41 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         save(voucherOrder);
 
 
+    }
+
+    @Override
+    public Result normalVoucher(Long voucherId) {
+        if(voucherId <= 0)
+        {
+            return Result.fail("优惠券ID不合法");
+        }
+        //1.获取下单用户
+        Long userId = UserHolder.getUser().getId();
+        //2.查询优惠券信息
+        Voucher voucher = voucherService.getById(voucherId);
+        if(voucher == null)
+        {
+            return Result.fail("优惠券不存在");
+        }
+        Integer type = voucher.getType();
+        Integer status = voucher.getStatus();
+        if(!Integer.valueOf(0).equals(type)){
+            return Result.fail("该优惠券不是普通券");
+        }
+        if(status != 1) {
+            return Result.fail("该优惠券已经下架或过期");
+        }
+        long orderId = redisIdWorker.nextId("order");
+        VoucherOrder voucherOrder = new VoucherOrder();
+        voucherOrder.setId(orderId);
+        voucherOrder.setUserId(userId);
+        voucherOrder.setVoucherId(voucherId);
+        voucherOrder.setStatus(1);
+        boolean save = save(voucherOrder);
+        if(!save)
+        {
+            return Result.fail("优惠券下单失败");
+        }
+        return Result.ok(String.valueOf(orderId));
     }
 }
