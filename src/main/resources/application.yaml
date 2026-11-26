@@ -10,6 +10,9 @@ spring:
     url: ${hmdp.spring.datasource.url}
     username: ${hmdp.spring.datasource.username}
     password: ${hmdp.spring.datasource.password}
+  sql:
+    init:
+      mode: always
   redis:
     host: ${hmdp.spring.redis.host}
     port: ${hmdp.spring.redis.port}

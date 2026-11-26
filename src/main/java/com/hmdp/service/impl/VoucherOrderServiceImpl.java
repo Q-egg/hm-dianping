@@ -1,6 +1,8 @@
 package com.hmdp.service.impl;
 
 import cn.hutool.core.bean.BeanUtil;
+import com.baomidou.mybatisplus.extension.conditions.update.UpdateChainWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.hmdp.dto.Result;
 import com.hmdp.dto.UserDTO;
 import com.hmdp.entity.SeckillVoucher;
@@ -13,11 +15,12 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.service.IVoucherService;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.SimpleRedisLock;
+import com.hmdp.utils.SystemConstants;
 import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
-import org.springframework.aop.framework.AopContext;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -33,6 +36,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -46,6 +50,12 @@ import java.util.concurrent.*;
 @Slf4j
 public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, VoucherOrder> implements IVoucherOrderService {
 
+    private static final int UNPAID = 1;
+    private static final int PAID = 2;
+    private static final int REDEEMED = 3;
+    private static final int CANCELED = 4;
+    private static final int REFUNDED = 6;
+    private static final int DEMO_PAY_TYPE = 0;
 
     @Resource
     private ISeckillVoucherService seckillVoucherService;
@@ -61,6 +71,12 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Resource
     private IVoucherService voucherService;
+
+    @Resource
+    private ObjectProvider<IVoucherOrderService> voucherOrderService;
+
+    @Resource
+    private SeckillStockReleaseService seckillStockReleaseService;
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
 
@@ -175,26 +191,14 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     private void handlerVoucherOrder(VoucherOrder voucherOrder) {
         Long userId = voucherOrder.getUserId();
-        //创建锁对象
         RLock lock = redissonClient.getLock("lock:order:" + userId);
-        //获取锁
-        boolean isLock = lock.tryLock();
-        if(!isLock){
-            log.error("不允许重复下单");
-            return;
-        }
+        lock.lock();
         try {
-            proxy.createOrderVoucher(voucherOrder);
+            voucherOrderService.getObject().createOrderVoucher(voucherOrder);
         } finally {
-            //释放锁
             lock.unlock();
         }
     }
-
-    /**
-     * 优惠券下单
-     */
-    private IVoucherOrderService proxy;
 
     public Result seckillVoucher(Long voucherId){
         Long userId = UserHolder.getUser().getId();
@@ -212,7 +216,6 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             //3.不为0，代表没有购买资格
             return Result.fail(r == 1 ? "库存不足": "无购买资格");
         }
-        proxy = (IVoucherOrderService) AopContext.currentProxy();
         return Result.ok(orderId);
     }
 
@@ -330,11 +333,18 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
 
     @Transactional
     public void createOrderVoucher(VoucherOrder voucherOrder){
+        // 消息重复投递时，历史订单也不能被重新创建。
+        if (getById(voucherOrder.getId()) != null) {
+            return;
+        }
 
-        //实现一人一单
+        // 已取消和已退款的订单不占用再次购买资格。
         Long userId = voucherOrder.getUserId();
-        //one 查询订单
-        int count = query().eq("user_id", userId).eq("voucher_id", voucherOrder.getVoucherId()).count();
+        int count = query()
+                .eq("user_id", userId)
+                .eq("voucher_id", voucherOrder.getVoucherId())
+                .notIn("status", CANCELED, REFUNDED)
+                .count();
 
         //two 判断订单是否存在
         if(count > 0){
@@ -386,12 +396,109 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         voucherOrder.setId(orderId);
         voucherOrder.setUserId(userId);
         voucherOrder.setVoucherId(voucherId);
-        voucherOrder.setStatus(1);
+        voucherOrder.setStatus(UNPAID);
         boolean save = save(voucherOrder);
         if(!save)
         {
             return Result.fail("优惠券下单失败");
         }
         return Result.ok(String.valueOf(orderId));
+    }
+
+    @Override
+    public Result queryOrders(Integer current) {
+        if (current == null || current < 1) {
+            return Result.fail("页码不合法");
+        }
+        Page<VoucherOrder> page = query()
+                .eq("user_id", UserHolder.getUser().getId())
+                .orderByDesc("create_time", "id")
+                .page(new Page<>(current, SystemConstants.MAX_PAGE_SIZE));
+        List<VoucherOrder> orders = page.getRecords();
+        if (!orders.isEmpty()) {
+            List<Long> voucherIds = orders.stream().map(VoucherOrder::getVoucherId).distinct()
+                    .collect(Collectors.toList());
+            Map<Long, String> titles = voucherService.listByIds(voucherIds).stream()
+                    .collect(Collectors.toMap(Voucher::getId, Voucher::getTitle));
+            orders.forEach(order -> order.setVoucherTitle(titles.get(order.getVoucherId())));
+        }
+        return Result.ok(orders, page.getTotal());
+    }
+
+    @Override
+    public Result queryOrder(Long id) {
+        VoucherOrder order = query()
+                .eq("id", id)
+                .eq("user_id", UserHolder.getUser().getId())
+                .one();
+        if (order == null) {
+            return Result.fail("订单不存在");
+        }
+        Voucher voucher = voucherService.getById(order.getVoucherId());
+        if (voucher != null) {
+            order.setVoucherTitle(voucher.getTitle());
+        }
+        return Result.ok(order);
+    }
+
+    @Override
+    public Result payOrder(Long id) {
+        boolean updated = orderUpdate(id, UNPAID, PAID)
+                .set("pay_type", DEMO_PAY_TYPE)
+                .set("pay_time", LocalDateTime.now())
+                .update();
+        return orderUpdateResult(updated);
+    }
+
+    @Override
+    @Transactional
+    public Result cancelOrder(Long id) {
+        return finishOrder(id, orderUpdate(id, UNPAID, CANCELED).update());
+    }
+
+    @Override
+    public Result redeemOrder(Long id) {
+        boolean updated = orderUpdate(id, PAID, REDEEMED)
+                .eq("pay_type", DEMO_PAY_TYPE)
+                .set("use_time", LocalDateTime.now())
+                .update();
+        return orderUpdateResult(updated);
+    }
+
+    @Override
+    @Transactional
+    public Result refundOrder(Long id) {
+        boolean updated = orderUpdate(id, PAID, REFUNDED)
+                .eq("pay_type", DEMO_PAY_TYPE)
+                .set("refund_time", LocalDateTime.now())
+                .update();
+        return finishOrder(id, updated);
+    }
+
+    private Result finishOrder(Long id, boolean updated) {
+        if (!updated) {
+            return orderUpdateResult(false);
+        }
+        VoucherOrder order = getById(id);
+        boolean restored = seckillVoucherService.update()
+                .eq("voucher_id", order.getVoucherId())
+                .setSql("stock = stock + 1")
+                .update();
+        if (restored) {
+            seckillStockReleaseService.enqueue(order);
+        }
+        return Result.ok();
+    }
+
+    private UpdateChainWrapper<VoucherOrder> orderUpdate(Long id, int status, int nextStatus) {
+        return update()
+                .eq("id", id)
+                .eq("user_id", UserHolder.getUser().getId())
+                .eq("status", status)
+                .set("status", nextStatus);
+    }
+
+    private Result orderUpdateResult(boolean updated) {
+        return updated ? Result.ok() : Result.fail("订单不存在或当前状态不允许此操作");
     }
 }

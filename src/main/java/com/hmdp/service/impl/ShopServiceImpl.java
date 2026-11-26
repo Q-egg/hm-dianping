@@ -82,6 +82,10 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         //逻辑过期解决缓存击穿
         Shop shop = cacheClient.queryWithLogicalExpire(CACHE_SHOP_KEY,id,Shop.class,this::getById,CACHE_SHOP_TTL,TimeUnit.MINUTES);
 
+        // 新增商铺和更新后清除缓存的商铺，仍可以从数据库读取。
+        if (shop == null) {
+            shop = getById(id);
+        }
         if(shop == null){
             return Result.fail("店铺不存在！");
         }

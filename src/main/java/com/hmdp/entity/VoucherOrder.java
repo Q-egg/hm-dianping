@@ -1,8 +1,11 @@
 package com.hmdp.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Accessors;
@@ -30,6 +33,7 @@ public class VoucherOrder implements Serializable {
      * 主键
      */
     @TableId(value = "id", type = IdType.INPUT)
+    @JsonSerialize(using = ToStringSerializer.class)
     private Long id;
 
     /**
@@ -43,7 +47,7 @@ public class VoucherOrder implements Serializable {
     private Long voucherId;
 
     /**
-     * 支付方式 1：余额支付；2：支付宝；3：微信
+     * 支付方式 0：模拟支付；1：余额支付；2：支付宝；3：微信
      */
     private Integer payType;
 
@@ -77,5 +81,6 @@ public class VoucherOrder implements Serializable {
      */
     private LocalDateTime updateTime;
 
-
+    @TableField(exist = false)
+    private String voucherTitle;
 }
